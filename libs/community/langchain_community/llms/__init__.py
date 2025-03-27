@@ -297,9 +297,9 @@ def _import_javelin_ai_gateway() -> Type[BaseLLM]:
 
 
 def _import_klusterai() -> Type[BaseLLM]:
-    from langchain_community.llms.klusterai import KlusterAi
+    from langchain_community.llms.klusterai import KlusterAI
 
-    return KlusterAi
+    return KlusterAI
 
 
 def _import_koboldai() -> Type[BaseLLM]:
@@ -771,7 +771,7 @@ def __getattr__(name: str) -> Any:
         return _import_ipex_llm()
     elif name == "JavelinAIGateway":
         return _import_javelin_ai_gateway()
-    elif name == "KlusterAi":
+    elif name == "KlusterAI":
         return _import_klusterai()
     elif name == "KoboldApiLLM":
         return _import_koboldai()
@@ -945,7 +945,7 @@ __all__ = [
     "HumanInputLLM",
     "IpexLLM",
     "JavelinAIGateway",
-    "KlusterAi",
+    "KlusterAI",
     "KoboldApiLLM",
     "Konko",
     "LlamaCpp",

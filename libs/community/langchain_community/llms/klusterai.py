@@ -13,8 +13,8 @@ from pydantic import ConfigDict, Field
 DEFAULT_MODEL_ID = "klusterai/Meta-Llama-3.1-8B-Instruct-Turbo"
 
 
-class KlusterAi(LLM):
-    """KlusterAi models.
+class KlusterAI(LLM):
+    """KlusterAI models.
 
     To use, you should have the environment variable ``KLUSTERAI_API_KEY``
     set with your API token, or pass it as a named parameter to the
@@ -23,8 +23,8 @@ class KlusterAi(LLM):
     Example:
         .. code-block:: python
 
-            from langchain_community.llms import KlusterAi
-            ka = KlusterAi(model_id="klusterai/Meta-Llama-3.1-8B-Instruct-Turbo",
+            from langchain_community.llms import KlusterAI
+            ka = KlusterAI(model_id="klusterai/Meta-Llama-3.1-8B-Instruct-Turbo",
                            klusterai_api_key="my-api-key")
     """
 
@@ -117,7 +117,7 @@ class KlusterAi(LLM):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        """Call out to KlusterAi's API endpoint using OpenAI client.
+        """Call out to KlusterAI's API endpoint using OpenAI client.
 
         Args:
             prompt: The prompt to pass into the model.
@@ -149,7 +149,7 @@ class KlusterAi(LLM):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        """Async call to KlusterAi's API endpoint using OpenAI client."""
+        """Async call to KlusterAI's API endpoint using OpenAI client."""
         params = self._get_parameters(prompt, stop, **kwargs)
 
         try:
@@ -168,7 +168,7 @@ class KlusterAi(LLM):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[GenerationChunk]:
-        """Stream response from KlusterAi API using OpenAI client."""
+        """Stream response from KlusterAI API using OpenAI client."""
         params = self._get_parameters(prompt, stop, **kwargs)
         params["stream"] = True
 
@@ -195,7 +195,7 @@ class KlusterAi(LLM):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> AsyncIterator[GenerationChunk]:
-        """Async stream response from KlusterAi API using OpenAI client."""
+        """Async stream response from KlusterAI API using OpenAI client."""
         params = self._get_parameters(prompt, stop, **kwargs)
         params["stream"] = True
 
@@ -218,18 +218,18 @@ class KlusterAi(LLM):
     def _handle_error_response(self, status_code: int, error_message: str) -> None:
         """Handle error responses from the API."""
         if status_code >= 500:
-            raise Exception(f"KlusterAi Server Error: {error_message}")
+            raise Exception(f"KlusterAI Server Error: {error_message}")
         elif status_code == 401:
-            raise Exception("KlusterAi Server: Unauthorized")
+            raise Exception("KlusterAI Server: Unauthorized")
         elif status_code == 403:
-            raise Exception("KlusterAi Server: Forbidden")
+            raise Exception("KlusterAI Server: Forbidden")
         elif status_code == 404:
-            raise Exception(f"KlusterAi Server: Model not found {self.model_id}")
+            raise Exception(f"KlusterAI Server: Model not found {self.model_id}")
         elif status_code == 429:
-            raise Exception("KlusterAi Server: Rate limit exceeded")
+            raise Exception("KlusterAI Server: Rate limit exceeded")
         elif status_code >= 400:
-            raise ValueError(f"KlusterAi received an invalid payload: {error_message}")
+            raise ValueError(f"KlusterAI received an invalid payload: {error_message}")
         else:
             raise Exception(
-                f"KlusterAi returned an unexpected response with status {status_code}: {error_message}"
+                f"KlusterAI returned an unexpected response with status {status_code}: {error_message}"
             )

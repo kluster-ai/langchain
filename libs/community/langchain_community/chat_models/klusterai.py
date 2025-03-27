@@ -149,7 +149,7 @@ def _parse_tool_calls(raw_tool_calls):
     return tool_calls
 
 
-class ChatKlusterAi(BaseChatModel):
+class ChatKlusterAI(BaseChatModel):
     """A chat model that uses the kluster.ai API via OpenAI client."""
 
     model_name: str = Field(default="klusterai/Meta-Llama-3.1-8B-Instruct-Turbo", alias="model")

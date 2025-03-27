@@ -264,9 +264,9 @@ def _import_javelin_ai_gateway() -> Any:
 
 
 def _import_klusterai() -> Any:
-    from langchain_community.llms.klusterai import KlusterAi
+    from langchain_community.llms.klusterai import KlusterAI
 
-    return KlusterAi
+    return KlusterAI
 
 
 def _import_koboldai() -> Any:
@@ -608,7 +608,7 @@ __all__ = [
     "HuggingFacePipeline",
     "HuggingFaceTextGenInference",
     "HumanInputLLM",
-    "KlusterAi",
+    "KlusterAI",
     "KoboldApiLLM",
     "LlamaCpp",
     "TextGen",

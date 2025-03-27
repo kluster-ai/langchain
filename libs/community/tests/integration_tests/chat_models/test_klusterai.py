@@ -1,4 +1,4 @@
-"""Test ChatKlusterAi wrapper."""
+"""Test ChatKlusterAI wrapper."""
 
 from typing import List
 
@@ -9,7 +9,7 @@ from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_core.runnables.base import RunnableBinding
 from pydantic import BaseModel
 
-from langchain_community.chat_models.klusterai import ChatKlusterAi
+from langchain_community.chat_models.klusterai import ChatKlusterAI
 from tests.unit_tests.callbacks.fake_callback_handler import FakeCallbackHandler
 
 
@@ -20,8 +20,8 @@ class GenerateMovieName(BaseModel):
 
 
 def test_chat_klusterai() -> None:
-    """Test valid call to KlusterAi."""
-    chat = ChatKlusterAi(
+    """Test valid call to KlusterAI."""
+    chat = ChatKlusterAI(
         max_tokens=10,
     )
     response = chat.invoke([HumanMessage(content="Hello")])
@@ -31,7 +31,7 @@ def test_chat_klusterai() -> None:
 
 def test_chat_klusterai_streaming() -> None:
     callback_handler = FakeCallbackHandler()
-    chat = ChatKlusterAi(
+    chat = ChatKlusterAI(
         callbacks=[callback_handler],
         streaming=True,
         max_tokens=10,
@@ -43,7 +43,7 @@ def test_chat_klusterai_streaming() -> None:
 
 async def test_async_chat_klusterai() -> None:
     """Test async generation."""
-    chat = ChatKlusterAi(
+    chat = ChatKlusterAI(
         max_tokens=10,
     )
     message = HumanMessage(content="Hello")
@@ -59,7 +59,7 @@ async def test_async_chat_klusterai() -> None:
 
 async def test_async_chat_klusterai_streaming() -> None:
     callback_handler = FakeCallbackHandler()
-    chat = ChatKlusterAi(
+    chat = ChatKlusterAI(
         callbacks=[callback_handler],
         max_tokens=10,
         streaming=True,
@@ -81,7 +81,7 @@ def test_chat_klusterai_bind_tools() -> None:
     class Foo(BaseModel):
         pass
 
-    chat = ChatKlusterAi(
+    chat = ChatKlusterAI(
         max_tokens=10,
     )
     tools = [Foo]
@@ -104,7 +104,7 @@ def test_chat_klusterai_bind_tools() -> None:
 
 
 def test_tool_use() -> None:
-    llm = ChatKlusterAi(model="klusterai/Meta-Llama-3.1-8B-Instruct-Turbo", temperature=0)
+    llm = ChatKlusterAI(model="klusterai/Meta-Llama-3.1-8B-Instruct-Turbo", temperature=0)
     llm_with_tool = llm.bind_tools(tools=[GenerateMovieName], tool_choice=True)
     msgs: List = [
         HumanMessage(content="It should be a movie explaining humanity in 2133.")
