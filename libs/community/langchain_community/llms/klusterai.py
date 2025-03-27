@@ -1,7 +1,6 @@
 import json
-from typing import Any, AsyncIterator, Dict, Iterator, List, Mapping, Optional
+from typing import Any, AsyncIterator, Dict, Iterator, List, Mapping, Optional, Union, Tuple
 
-import aiohttp
 from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
@@ -9,9 +8,7 @@ from langchain_core.callbacks import (
 from langchain_core.language_models.llms import LLM
 from langchain_core.outputs import GenerationChunk
 from langchain_core.utils import get_from_dict_or_env, pre_init
-from pydantic import ConfigDict
-
-from langchain_community.utilities.requests import Requests
+from pydantic import ConfigDict, Field
 
 DEFAULT_MODEL_ID = "klusterai/Meta-Llama-3.1-8B-Instruct-Turbo"
 
@@ -36,6 +33,15 @@ class KlusterAi(LLM):
 
     klusterai_api_key: Optional[str] = None
 
+    client: Any = Field(default=None, exclude=True)  #: :meta private:
+    async_client: Any = Field(default=None, exclude=True)  #: :meta private:
+
+    request_timeout: Union[float, Tuple[float, float], Any, None] = None
+    """Timeout for requests to KlusterAI API."""
+
+    max_retries: int = 6
+    """Maximum number of retries to make when generating."""
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -47,6 +53,32 @@ class KlusterAi(LLM):
             values, "klusterai_api_key", "KLUSTERAI_API_KEY"
         )
         values["klusterai_api_key"] = klusterai_api_key
+
+        try:
+            import openai
+        except ImportError:
+            raise ImportError(
+                "Could not import openai python package. "
+                "Please install it with `pip install openai`."
+            )
+
+        # Initialize the OpenAI client if not already provided
+        if not values.get("client"):
+            values["client"] = openai.OpenAI(
+                api_key=klusterai_api_key,
+                base_url="https://api.kluster.ai/v1",
+                timeout=values.get("request_timeout"),
+                max_retries=values.get("max_retries", 6),
+            ).chat.completions
+
+        if not values.get("async_client"):
+            values["async_client"] = openai.AsyncOpenAI(
+                api_key=klusterai_api_key,
+                base_url="https://api.kluster.ai/v1",
+                timeout=values.get("request_timeout"),
+                max_retries=values.get("max_retries", 6),
+            ).chat.completions
+
         return values
 
     @property
@@ -62,44 +94,21 @@ class KlusterAi(LLM):
         """Return type of llm."""
         return "klusterai"
 
-    def _url(self) -> str:
-        return "https://api.kluster.ai/v1/chat/completions"
-
-    def _headers(self) -> Dict:
-        return {
-            "Authorization": f"Bearer {self.klusterai_api_key}",
-            "Content-Type": "application/json",
-        }
-
-    def _body(self, prompt: str, kwargs: Any) -> Dict:
+    def _get_parameters(self, prompt: str, stop: Optional[List[str]] = None, **kwargs: Any) -> Dict:
+        """Get the parameters for the API call."""
         model_kwargs = self.model_kwargs or {}
-        model_kwargs = {**model_kwargs, **kwargs}
+        merged_kwargs = {**model_kwargs, **kwargs}
 
-        return {
+        if stop:
+            merged_kwargs["stop"] = stop
+
+        params = {
             "model": self.model_id,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
-            **model_kwargs,
+            "messages": [{"role": "user", "content": prompt}],
+            **merged_kwargs,
         }
 
-    def _handle_status(self, code: int, text: Any) -> None:
-        if code >= 500:
-            raise Exception(f"KlusterAi Server: Error {text}")
-        elif code == 401:
-            raise Exception("KlusterAi Server: Unauthorized")
-        elif code == 403:
-            raise Exception("KlusterAi Server: Forbidden")
-        elif code == 404:
-            raise Exception(f"KlusterAi Server: Model not found {self.model_id}")
-        elif code == 429:
-            raise Exception("KlusterAi Server: Rate limit exceeded")
-        elif code >= 400:
-            raise ValueError(f"KlusterAi received an invalid payload: {text}")
-        elif code != 200:
-            raise Exception(
-                f"KlusterAi returned an unexpected response with status {code}: {text}"
-            )
+        return params
 
     def _call(
         self,
@@ -108,7 +117,7 @@ class KlusterAi(LLM):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        """Call out to KlusterAi's API endpoint.
+        """Call out to KlusterAi's API endpoint using OpenAI client.
 
         Args:
             prompt: The prompt to pass into the model.
@@ -122,16 +131,16 @@ class KlusterAi(LLM):
 
                 response = ka("Tell me a joke.")
         """
-        if stop:
-            kwargs["stop"] = stop
+        params = self._get_parameters(prompt, stop, **kwargs)
 
-        request = Requests(headers=self._headers())
-        response = request.post(url=self._url(), data=self._body(prompt, kwargs))
-
-        self._handle_status(response.status_code, response.text)
-        data = response.json()
-
-        return data["choices"][0]["message"]["content"]
+        try:
+            response = self.client.create(**params)
+            return response.choices[0].message.content
+        except Exception as e:
+            if hasattr(e, "status_code"):
+                status_code = getattr(e, "status_code")
+                self._handle_error_response(status_code, str(e))
+            raise e
 
     async def _acall(
         self,
@@ -140,16 +149,17 @@ class KlusterAi(LLM):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        if stop:
-            kwargs["stop"] = stop
+        """Async call to KlusterAi's API endpoint using OpenAI client."""
+        params = self._get_parameters(prompt, stop, **kwargs)
 
-        request = Requests(headers=self._headers())
-        async with request.apost(
-            url=self._url(), data=self._body(prompt, kwargs)
-        ) as response:
-            self._handle_status(response.status, await response.text())
-            data = await response.json()
-            return data["choices"][0]["message"]["content"]
+        try:
+            response = await self.async_client.create(**params)
+            return response.choices[0].message.content
+        except Exception as e:
+            if hasattr(e, "status_code"):
+                status_code = getattr(e, "status_code")
+                self._handle_error_response(status_code, str(e))
+            raise e
 
     def _stream(
         self,
@@ -158,22 +168,25 @@ class KlusterAi(LLM):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[GenerationChunk]:
-        if stop:
-            kwargs["stop"] = stop
+        """Stream response from KlusterAi API using OpenAI client."""
+        params = self._get_parameters(prompt, stop, **kwargs)
+        params["stream"] = True
 
-        request = Requests(headers=self._headers())
-        response = request.post(
-            url=self._url(), data=self._body(prompt, {**kwargs, "stream": True})
-        )
-        response_text = response.text
-        self._handle_body_errors(response_text)
-        self._handle_status(response.status_code, response.text)
-        for line in _parse_stream(response.iter_lines()):
-            chunk = _handle_sse_line(line)
-            if chunk:
-                if run_manager:
-                    run_manager.on_llm_new_token(chunk.text)
-                yield chunk
+        try:
+            for chunk in self.client.create(**params):
+                if len(chunk.choices) > 0:
+                    choice = chunk.choices[0]
+                    if choice.delta.content is not None:
+                        chunk_content = choice.delta.content
+                        generation_chunk = GenerationChunk(text=chunk_content)
+                        if run_manager:
+                            run_manager.on_llm_new_token(chunk_content)
+                        yield generation_chunk
+        except Exception as e:
+            if hasattr(e, "status_code"):
+                status_code = getattr(e, "status_code")
+                self._handle_error_response(status_code, str(e))
+            raise e
 
     async def _astream(
         self,
@@ -182,81 +195,41 @@ class KlusterAi(LLM):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> AsyncIterator[GenerationChunk]:
-        if stop:
-            kwargs["stop"] = stop
+        """Async stream response from KlusterAi API using OpenAI client."""
+        params = self._get_parameters(prompt, stop, **kwargs)
+        params["stream"] = True
 
-        request = Requests(headers=self._headers())
-        async with request.apost(
-            url=self._url(), data=self._body(prompt, {**kwargs, "stream": True})
-        ) as response:
-            response_text = await response.text()
-            self._handle_body_errors(response_text)
-            self._handle_status(response.status, response.text)
-            async for line in _parse_stream_async(response.content):
-                chunk = _handle_sse_line(line)
-                if chunk:
-                    if run_manager:
-                        await run_manager.on_llm_new_token(chunk.text)
-                    yield chunk
+        try:
+            async for chunk in await self.async_client.create(**params):
+                if len(chunk.choices) > 0:
+                    choice = chunk.choices[0]
+                    if choice.delta.content is not None:
+                        chunk_content = choice.delta.content
+                        generation_chunk = GenerationChunk(text=chunk_content)
+                        if run_manager:
+                            await run_manager.on_llm_new_token(chunk_content)
+                        yield generation_chunk
+        except Exception as e:
+            if hasattr(e, "status_code"):
+                status_code = getattr(e, "status_code")
+                self._handle_error_response(status_code, str(e))
+            raise e
 
-    def _handle_body_errors(self, body: str) -> None:
-        """
-        Example error response:
-        data: {"error_type": "validation_error",
-        "error_message": "ConnectionError: ..."}
-        """
-        if "error" in body:
-            try:
-                # Remove data: prefix if present
-                if body.startswith("data:"):
-                    body = body[len("data:") :]
-                error_data = json.loads(body)
-                error_message = error_data.get("error_message", "Unknown error")
-
-                raise Exception(f"KlusterAi Server Error: {error_message}")
-            except json.JSONDecodeError:
-                raise Exception(f"KlusterAi Server: {body}")
-
-
-def _parse_stream(rbody: Iterator[bytes]) -> Iterator[str]:
-    for line in rbody:
-        _line = _parse_stream_helper(line)
-        if _line is not None:
-            yield _line
-
-
-async def _parse_stream_async(rbody: aiohttp.StreamReader) -> AsyncIterator[str]:
-    async for line in rbody:
-        _line = _parse_stream_helper(line)
-        if _line is not None:
-            yield _line
-
-
-def _parse_stream_helper(line: bytes) -> Optional[str]:
-    if line and line.startswith(b"data:"):
-        if line.startswith(b"data: "):
-            # SSE event may be valid when it contain whitespace
-            line = line[len(b"data: ") :]
+    def _handle_error_response(self, status_code: int, error_message: str) -> None:
+        """Handle error responses from the API."""
+        if status_code >= 500:
+            raise Exception(f"KlusterAi Server Error: {error_message}")
+        elif status_code == 401:
+            raise Exception("KlusterAi Server: Unauthorized")
+        elif status_code == 403:
+            raise Exception("KlusterAi Server: Forbidden")
+        elif status_code == 404:
+            raise Exception(f"KlusterAi Server: Model not found {self.model_id}")
+        elif status_code == 429:
+            raise Exception("KlusterAi Server: Rate limit exceeded")
+        elif status_code >= 400:
+            raise ValueError(f"KlusterAi received an invalid payload: {error_message}")
         else:
-            line = line[len(b"data:") :]
-        if line.strip() == b"[DONE]":
-            # return here will cause GeneratorExit exception in urllib3
-            # and it will close http connection with TCP Reset
-            return None
-        else:
-            return line.decode("utf-8")
-    return None
-
-
-def _handle_sse_line(line: str) -> Optional[GenerationChunk]:
-    try:
-        obj = json.loads(line)
-        if "choices" in obj and len(obj["choices"]) > 0:
-            choice = obj["choices"][0]
-            if "delta" in choice and "content" in choice["delta"]:
-                return GenerationChunk(
-                    text=choice["delta"]["content"],
-                )
-        return None
-    except Exception:
-        return None
+            raise Exception(
+                f"KlusterAi returned an unexpected response with status {status_code}: {error_message}"
+            )
