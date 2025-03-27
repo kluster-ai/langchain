@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import (
     Any,
@@ -9,7 +10,6 @@ from typing import (
     Dict,
     Iterator,
     List,
-    Mapping,
     Optional,
     Sequence,
     Tuple,
@@ -40,7 +40,9 @@ from langchain_core.messages import (
     HumanMessageChunk,
     SystemMessage,
     SystemMessageChunk,
+    ToolCall,
     ToolMessage,
+    ToolMessageChunk,
 )
 from langchain_core.outputs import (
     ChatGeneration,
@@ -75,7 +77,17 @@ def _convert_message_to_openai(message: BaseMessage) -> ChatCompletionMessagePar
         message_dict = {"role": "assistant", "content": message.content}
         if message.tool_calls:
             # Handle tool calls according to OpenAI format
-            message_dict["tool_calls"] = message.tool_calls
+            message_dict["tool_calls"] = [
+                {
+                    "type": "function",
+                    "id": tc.get("id", f"call_{i}"),
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": json.dumps(tc["args"]),
+                    },
+                }
+                for i, tc in enumerate(message.tool_calls)
+            ]
         return message_dict
     elif isinstance(message, SystemMessage):
         return {"role": "system", "content": message.content}
@@ -95,13 +107,65 @@ def _convert_message_to_openai(message: BaseMessage) -> ChatCompletionMessagePar
         raise ValueError(f"Got unknown message type: {message}")
 
 
+def _parse_tool_calls(raw_tool_calls):
+    """Parse tool calls from API response to LangChain format."""
+    tool_calls = []
+    if not raw_tool_calls:
+        return tool_calls
+
+    for tool_call in raw_tool_calls:
+        # Check if it's a dict or an object
+        print("TOOL CALL:")
+        print(tool_call)
+        if isinstance(tool_call, dict):
+            if tool_call.get("type") != "function":
+                continue
+            function_call = tool_call.get("function", {})
+            tool_call_id = tool_call.get("id", "")
+
+            # Get function name and arguments
+            if isinstance(function_call, dict):
+                function_name = function_call.get("name", "")
+                arguments_str = function_call.get("arguments", "{}")
+            else:
+                function_name = getattr(function_call, "name", "")
+                arguments_str = getattr(function_call, "arguments", "{}")
+        else:
+            # Handle object-like tool_call (e.g., ChatCompletionMessageToolCall)
+            if getattr(tool_call, "type", None) != "function":
+                continue
+            function_call = getattr(tool_call, "function", None)
+            tool_call_id = getattr(tool_call, "id", "")
+
+            # Get function name and arguments
+            if function_call is None:
+                continue
+            function_name = getattr(function_call, "name", "")
+            arguments_str = getattr(function_call, "arguments", "{}")
+
+        # Parse arguments
+        try:
+            args = json.loads(arguments_str)
+        except json.JSONDecodeError:
+            args = arguments_str if isinstance(arguments_str, dict) else {}
+
+        tool_calls.append(
+            ToolCall(
+                id=tool_call_id,
+                name=function_name,
+                args=args,
+            )
+        )
+    return tool_calls
+
+
 class ChatKlusterAi(BaseChatModel):
     """A chat model that uses the kluster.ai API via OpenAI client."""
 
     model_name: str = Field(default="klusterai/Meta-Llama-3.1-8B-Instruct-Turbo", alias="model")
     """Model name to use."""
 
-    base_url: str = Field(default="https://api.kluster.ai/v1", alias="klusterai_api_base")
+    base_url: str = Field(default="https://api-r.klusterai.dev/v1", alias="klusterai_api_base")
     """Base URL for kluster.ai API."""
 
     api_key: Optional[str] = Field(default=None, alias="klusterai_api_key")
@@ -245,16 +309,36 @@ class ChatKlusterAi(BaseChatModel):
         for choice in response.choices:
             message = choice.message
             message_content = message.content or ""
+            additional_kwargs = {}
+
+            # Process function calls if present
+            if hasattr(message, "function_call") and message.function_call:
+                additional_kwargs["function_call"] = message.function_call
+
+            # Process tool calls if present
+            tool_calls = []
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                tool_calls = _parse_tool_calls(message.tool_calls)
+                additional_kwargs["tool_calls"] = message.tool_calls
 
             # Convert OpenAI message back to LangChain message
             if message.role == "assistant":
-                lc_message = AIMessage(content=message_content)
+                lc_message = AIMessage(
+                    content=message_content,
+                    additional_kwargs=additional_kwargs,
+                    tool_calls=tool_calls,
+                )
             elif message.role == "user":
                 lc_message = HumanMessage(content=message_content)
             elif message.role == "system":
                 lc_message = SystemMessage(content=message_content)
             elif message.role == "function":
                 lc_message = FunctionMessage(content=message_content, name=message.name)
+            elif message.role == "tool":
+                lc_message = ToolMessage(
+                    content=message_content,
+                    tool_call_id=message.tool_call_id
+                )
             else:
                 lc_message = ChatMessage(content=message_content, role=message.role)
 
@@ -300,6 +384,8 @@ class ChatKlusterAi(BaseChatModel):
                 continue
 
             choice = chunk.choices[0]
+
+            # Handle content chunks
             if choice.delta.content is not None:
                 chunk_message = AIMessageChunk(content=choice.delta.content)
                 chunk_gen = ChatGenerationChunk(message=chunk_message)
@@ -309,6 +395,29 @@ class ChatKlusterAi(BaseChatModel):
                         choice.delta.content, chunk=chunk_gen
                     )
                 yield chunk_gen
+
+            # Handle tool call chunks
+            if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                for tool_call in choice.delta.tool_calls:
+                    function_info = tool_call.get("function", {})
+                    tool_call_chunk = {
+                        "id": tool_call.get("id", ""),
+                        "type": tool_call.get("type", "function"),
+                        "function": {
+                            "name": function_info.get("name", ""),
+                            "arguments": function_info.get("arguments", ""),
+                        }
+                    }
+
+                    chunk_message = AIMessageChunk(
+                        content="",
+                        additional_kwargs={"tool_calls": [tool_call_chunk]}
+                    )
+                    chunk_gen = ChatGenerationChunk(message=chunk_message)
+
+                    if run_manager:
+                        run_manager.on_llm_new_token("", chunk=chunk_gen)
+                    yield chunk_gen
 
     async def _agenerate(
         self,
@@ -363,6 +472,8 @@ class ChatKlusterAi(BaseChatModel):
                 continue
 
             choice = chunk.choices[0]
+
+            # Handle content chunks
             if choice.delta.content is not None:
                 chunk_message = AIMessageChunk(content=choice.delta.content)
                 chunk_gen = ChatGenerationChunk(message=chunk_message)
@@ -372,6 +483,29 @@ class ChatKlusterAi(BaseChatModel):
                         choice.delta.content, chunk=chunk_gen
                     )
                 yield chunk_gen
+
+            # Handle tool call chunks
+            if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
+                for tool_call in choice.delta.tool_calls:
+                    function_info = tool_call.get("function", {})
+                    tool_call_chunk = {
+                        "id": tool_call.get("id", ""),
+                        "type": tool_call.get("type", "function"),
+                        "function": {
+                            "name": function_info.get("name", ""),
+                            "arguments": function_info.get("arguments", ""),
+                        }
+                    }
+
+                    chunk_message = AIMessageChunk(
+                        content="",
+                        additional_kwargs={"tool_calls": [tool_call_chunk]}
+                    )
+                    chunk_gen = ChatGenerationChunk(message=chunk_message)
+
+                    if run_manager:
+                        await run_manager.on_llm_new_token("", chunk=chunk_gen)
+                    yield chunk_gen
 
     @property
     def _identifying_params(self) -> Dict[str, Any]:
@@ -390,15 +524,61 @@ class ChatKlusterAi(BaseChatModel):
     def bind_tools(
         self,
         tools: Sequence[Union[Dict[str, Any], Type[BaseModel], Any, BaseTool]],
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, BaseMessage]:
-        """Bind tool-like objects to this chat model.
+        """Bind tools to this chat model.
 
         Args:
-            tools: A list of tool definitions to bind to this chat model.
-                Can be a dictionary, pydantic model, callable, or BaseTool.
-            **kwargs: Additional parameters to pass to the
-                Runnable constructor.
+            tools: A sequence of tools to bind to this chat model.
+            tool_choice: Specifies which tool the model should use. Can be:
+                - "auto": model decides whether to call a tool
+                - "none": model doesn't call any tools
+                - "required": model must call a tool
+                - dict: specific tool to use in format {"type": "function", "function": {"name": "tool_name"}}
+            **kwargs: Additional parameters to pass to the model.
+
+        Returns:
+            A runnable that uses the provided tools.
         """
-        # OpenAI client automatically handles the tool formatting
-        return super().bind(tools=tools, **kwargs)
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
+        tool_names = [ft["function"]["name"] for ft in formatted_tools]
+        if tool_choice:
+            if isinstance(tool_choice, dict):
+                if not any(
+                    tool_choice["function"]["name"] == name for name in tool_names
+                ):
+                    raise ValueError(
+                        f"Tool choice {tool_choice=} was specified, but the only "
+                        f"provided tools were {tool_names}."
+                    )
+            elif isinstance(tool_choice, str):
+                chosen = [
+                    f for f in formatted_tools if f["function"]["name"] == tool_choice
+                ]
+                if not chosen:
+                    raise ValueError(
+                        f"Tool choice {tool_choice=} was specified, but the only "
+                        f"provided tools were {tool_names}."
+                    )
+            elif isinstance(tool_choice, bool):
+                if len(formatted_tools) > 1:
+                    raise ValueError(
+                        "tool_choice=True can only be specified when a single tool is "
+                        f"passed in. Received {len(tools)} tools."
+                    )
+                tool_choice = formatted_tools[0]
+            else:
+                raise ValueError(
+                    """Unrecognized tool_choice type. Expected dict having format like
+                    this {"type": "function", "function": {"name": <<tool_name>>}}"""
+                    f"Received: {tool_choice}"
+                )
+
+        kwargs["tool_choice"] = tool_choice
+        return super().bind(
+            tools=formatted_tools,
+            **kwargs
+        )
