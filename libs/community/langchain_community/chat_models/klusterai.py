@@ -115,8 +115,6 @@ def _parse_tool_calls(raw_tool_calls):
 
     for tool_call in raw_tool_calls:
         # Check if it's a dict or an object
-        print("TOOL CALL:")
-        print(tool_call)
         if isinstance(tool_call, dict):
             if tool_call.get("type") != "function":
                 continue

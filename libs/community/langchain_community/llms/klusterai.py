@@ -63,7 +63,7 @@ class KlusterAi(LLM):
         return "klusterai"
 
     def _url(self) -> str:
-        return "https://api.kluster.ai/v1/chat/completions"
+        return "https://api-r.klusterai.dev/v1/chat/completions"
 
     def _headers(self) -> Dict:
         return {
