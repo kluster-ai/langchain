@@ -163,7 +163,7 @@ class ChatKlusterAi(BaseChatModel):
     model_name: str = Field(default="klusterai/Meta-Llama-3.1-8B-Instruct-Turbo", alias="model")
     """Model name to use."""
 
-    base_url: str = Field(default="https://api-r.klusterai.dev/v1", alias="klusterai_api_base")
+    base_url: str = Field(default="https://api.kluster.ai/v1", alias="klusterai_api_base")
     """Base URL for kluster.ai API."""
 
     api_key: Optional[str] = Field(default=None, alias="klusterai_api_key")
