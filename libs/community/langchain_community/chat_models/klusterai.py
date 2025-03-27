@@ -55,20 +55,12 @@ from langchain_core.utils import get_from_dict_or_env
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Self
 
-try:
-    import openai
-    from openai import OpenAI, AsyncOpenAI
-    from openai.types.chat import ChatCompletionMessageParam
-except ImportError:
-    raise ImportError(
-        "Could not import openai python package. "
-        "Please install it with `pip install openai`."
-    )
 
 logger = logging.getLogger(__name__)
 
 
-def _convert_message_to_openai(message: BaseMessage) -> ChatCompletionMessageParam:
+
+def _convert_message_to_openai(message: BaseMessage):
     if isinstance(message, ChatMessage):
         return {"role": message.role, "content": message.content}
     elif isinstance(message, HumanMessage):
@@ -232,6 +224,13 @@ class ChatKlusterAi(BaseChatModel):
 
         # Create clients if not already initialized
         if self.client is None:
+            try:
+                from openai import OpenAI
+            except ImportError:
+                raise ImportError(
+                    "Could not import openai python package. "
+                    "Please install it with `pip install openai`."
+                )
             self.client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
@@ -240,6 +239,13 @@ class ChatKlusterAi(BaseChatModel):
             )
 
         if self.async_client is None:
+            try:
+                from openai import AsyncOpenAI
+            except ImportError:
+                raise ImportError(
+                    "Could not import openai python package. "
+                    "Please install it with `pip install openai`."
+                )
             self.async_client = AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,

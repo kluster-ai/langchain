@@ -63,7 +63,7 @@ class KlusterAi(LLM):
         return "klusterai"
 
     def _url(self) -> str:
-        return "https://api-r.klusterai.dev/v1/chat/completions"
+        return "https://api.kluster.ai/v1/chat/completions"
 
     def _headers(self) -> Dict:
         return {
@@ -89,7 +89,7 @@ class KlusterAi(LLM):
         elif code == 401:
             raise Exception("KlusterAi Server: Unauthorized")
         elif code == 403:
-            raise Exception("KlusterAi Server: Unauthorized")
+            raise Exception("KlusterAi Server: Forbidden")
         elif code == 404:
             raise Exception(f"KlusterAi Server: Model not found {self.model_id}")
         elif code == 429:
