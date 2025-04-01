@@ -88,7 +88,7 @@ class DeepInfra(LLM):
         elif code == 401:
             raise Exception("DeepInfra Server: Unauthorized")
         elif code == 403:
-            raise Exception("DeepInfra Server: Unauthorized")
+            raise Exception("DeepInfra Server: Forbidden")
         elif code == 404:
             raise Exception(f"DeepInfra Server: Model not found {self.model_id}")
         elif code == 429:

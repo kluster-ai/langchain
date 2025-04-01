@@ -1,0 +1,53 @@
+# KlusterAI
+
+>[KlusterAI](https://kluster.ai/) is a serverless inference service that provides access to a variety of LLMs including Meta's Llama 3.1 and Llama 3.3 models. This page covers how to use the KlusterAI ecosystem within LangChain.
+
+## Installation and Setup
+
+- Get your API key from KlusterAI. You need to [sign up](https://console.kluster.ai/) and generate a new API key.
+- Set your API key as an environment variable (`KLUSTERAI_API_KEY`)
+
+```python
+import os
+from getpass import getpass
+
+# Only prompt for API token if not already set in environment
+if "KLUSTERAI_API_KEY" not in os.environ:
+    os.environ["KLUSTERAI_API_KEY"] = getpass("Enter your KlusterAI API key: ")
+```
+
+## LLM
+
+KlusterAI provides access to large language models through its API.
+
+See a [usage example](/docs/integrations/llms/klusterai).
+
+```python
+from langchain_community.llms import KlusterAI
+```
+
+## Chat Models
+
+KlusterAI also supports chat models with streaming and tool calling capabilities.
+
+See a [usage example](/docs/integrations/chat/klusterai).
+
+```python
+from langchain_community.chat_models import ChatKlusterAI
+```
+
+## Available Models
+
+KlusterAI provides access to a range of models including:
+
+- `klusterai/Meta-Llama-3.1-8B-Instruct-Turbo`
+- `klusterai/Meta-Llama-3.1-405B-Instruct-Turbo`
+- `klusterai/Meta-Llama-3.3-70B-Instruct-Turbo`
+- `deepseek-ai/DeepSeek-R1`
+- `deepseek-ai/DeepSeek-V3`
+- `deepseek-ai/DeepSeek-V3-0324`
+- `google/gemma-3-27b-it`
+- `Qwen/Qwen2.5-VL-7B-Instruct`
+- And more
+
+You can view the complete list of models by using the `/v1/models` endpoint or through the KlusterAI dashboard.
